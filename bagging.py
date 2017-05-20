@@ -49,9 +49,9 @@ def createBootstrapReplicate(trainingData, filename):
 
 
 """
-  Function to create a decision tree from a replicate
+  Function to spawn a thread to create a decision tree from a replicate
 """
-def createDecisionTree(replicateFilename):
+def startDecisionTreeThread(replicateFilename):
   args = ['python', 'decisionTree.py', replicateFilename]
   decisionTreeProcesses.append(Process(args))
 
@@ -95,8 +95,11 @@ def tallyVotes(votes):
 
   if numPositivites > numNegatives:
     return 1
-  else:
+  elif numNegatives > numPositivites:
     return 0
+  else:
+    # if vote is a tie return random guess
+    return random.randint(0, 1)
 
 """
  Function to use decision trees over test set, and tally votes from each tree
@@ -104,7 +107,7 @@ def tallyVotes(votes):
 """
 def runTestWithDecisionTrees(decisionTrees):
   # Load test data
-  testData = arff.load(open('bagging-data/molecular-biology_promoters_test.arff', 'rb'))
+  testData = arff.load(open(os.getcwd() + '/bagging-data/molecular-biology_promoters_test.arff', 'rb'))
 
   numPredictions = len(testData[u'data'])
   numCorrectPredictions = 0
@@ -126,16 +129,19 @@ def runTestWithDecisionTrees(decisionTrees):
 removeReplicates()
 
 # Load training data
-trainingData = arff.load(open('bagging-data/molecular-biology_promoters_train.arff', 'rb'))
+trainingData = arff.load(open(os.getcwd() + '/bagging-data/molecular-biology_promoters_train.arff', 'rb'))
 
 # Set number of samples we're going to do
 numSamplings = 20
 
+# For each desired sampling, we create a bootstrap replicate, 
+# and then spawn a thread to create a decision tree for that replicate
 for i in range(0, numSamplings):
-  replicateFilename = 'bagging-data/replicates/replicate_' + str(i) + '.arff'
+  replicateFilename = os.getcwd() + '/bagging-data/replicates/replicate_' + str(i) + '.arff'
   createBootstrapReplicate(trainingData, replicateFilename)
-  createDecisionTree(replicateFilename)
+  startDecisionTreeThread(replicateFilename)
 
+# Wait until all threads are finished creating trees
 decisionTrees_output = [""]  * numSamplings
 decisionTrees_status = [True] * numSamplings
 decisionTrees_running = True
@@ -156,10 +162,11 @@ while decisionTrees_running:
 
   decisionTrees_running = areTreesRunning(decisionTrees_status)
 
+# Each thread outputs a json string representing a decision tree
+# we read these in and then run against test data
 decisionTrees = []
 for treeString in decisionTrees_output:
   decisionTrees.append(json.loads(treeString))
-
 
 # We create 20 decision trees once, and then run tests against subsets of the 20 for the smaller ensembles
 runTestWithDecisionTrees(decisionTrees[0:1])
